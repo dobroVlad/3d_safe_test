@@ -180,11 +180,11 @@
     <div id="loading">Завантаження ресурсів... <span id="progress">0%</span></div>
     
     <div id="file-prompt" class="hidden">
-        <div style="margin-bottom: 15px; font-size: 16px;">Помилка локального файлу (CORS).<br>Виберіть <strong>Safe.fbx</strong> вручну:</div>
+        <div style="margin-bottom: 15px; font-size: 16px;">Помилка локального файлу (CORS).<br>Виберіть <strong>обидва FBX файли</strong> з папки <code>source/</code>:<br><span style="opacity:0.7; font-size:13px;">Safe.fbx &amp; Hip Hop Dancing.fbx</span></div>
         <label for="file-input" style="cursor: pointer; background: #fef08a; color: #111; padding: 10px 20px; border-radius: 8px; font-weight: bold; display: inline-block;">
-            Завантажити FBX
+            Вибрати FBX файли
         </label>
-        <input type="file" id="file-input" accept=".fbx" style="display: none;" />
+        <input type="file" id="file-input" accept=".fbx" multiple style="display: none;" />
     </div>
 
     <!-- UI Шар -->
@@ -214,18 +214,18 @@
 
         // --- 1. Базові налаштування сцени ---
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0xf9a8d4, 0.0015); // М'який рожевий туман 
+        // Без туману - рожевий туман фарбував усі темні поверхні у багряний
 
         const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
         camera.position.set(0, 50, 220); 
         camera.lookAt(0, 20, 0); 
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false }); // Вимикаємо прозорість для Bloom
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMapping = THREE.LinearToneMapping; // Нейтральне тонмепінг без давлення на кольор
         renderer.toneMappingExposure = 1.0;
         document.getElementById('canvas-container').appendChild(renderer.domElement);
 
@@ -281,19 +281,27 @@
         scene.add(skyBox);
 
         // --- 3. Освітлення ---
-        const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+        // Сильне фонове освітлення - головна причина темних моделей
+        const ambientLight = new THREE.AmbientLight(0xffffff, 3.0);
         scene.add(ambientLight);
 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+        // Головне напрямлене світло (зверху спереду)
+        const dirLight = new THREE.DirectionalLight(0xffffff, 3);
         dirLight.position.set(100, 200, 100);
         dirLight.castShadow = true;
         dirLight.shadow.mapSize.width = 1024;
         dirLight.shadow.mapSize.height = 1024;
         scene.add(dirLight);
 
-        const fillLight = new THREE.PointLight(0x7c3aed, 3, 400); // Фіолетове світіння
+        // Бокове заповнююче світло (зліва)
+        const fillLight = new THREE.DirectionalLight(0xffffff, 2);
         fillLight.position.set(-150, 50, 100);
         scene.add(fillLight);
+
+        // Бек світло (ззаду) щоб винікли чорні плями на задніх частинах
+        const backLight = new THREE.DirectionalLight(0xffffff, 2);
+        backLight.position.set(0, 100, -200);
+        scene.add(backLight);
 
         // --- 4. Оточення (Сітка підлоги) ---
         const planeGeo = new THREE.PlaneGeometry(1000, 1000);
@@ -382,15 +390,9 @@
                             mat.roughness = 0.5;
                             mat.metalness = 0.4;
                             
-                            // Кастомізація під стиль "Скрині" (Фіолетовий + Золотий)
-                            const name = (mat.name || '').toLowerCase();
-                            if (name.includes('metal') || name.includes('trim') || name.includes('frame') || name.includes('wheel')) {
-                                mat.color.setHex(0xf59e0b); // Золото
-                                mat.metalness = 0.8;
-                            } else {
-                                mat.color.setHex(0x7c3aed); // Фіолетові панелі
-                            }
+                            // Залишаємо оригінальні кольори моделі (без жорсткого перевизначення color)
                             
+                            // Налаштування для світіння під час кліку
                             mat.emissive.setHex(0x38bdf8); // Колір спалаху (яскраво блакитний)
                             mat.emissiveIntensity = 0.0;
                             safeMaterials.push(mat);
@@ -439,25 +441,40 @@
             basePosition.y = -20 + halfHeight; 
             safeGroup.position.copy(basePosition);
 
-            // 7. Центруємо камеру на скрині
+            // Фокус камери на об'єкті
             camera.lookAt(0, basePosition.y, 0);
             
+            // Надійно вираховуємо висоту зірки на основі фіксованої геометрії
+            const height = finalBox.max.y - finalBox.min.y;
+            starIdleY = (-20) + height + 25;
+            
             // Оновлюємо позицію зірки
-            starMesh.position.y = finalBox.max.y + 25; // Середня відстань (не дуже високо, але й не перетинає сейф)
+            starMesh.position.y = starIdleY; 
             starMesh.position.z = 0; 
             starMesh.position.x = 0;
             starMesh.visible = true; // Показуємо зірку
         }
 
-        // Обробка ручного вибору файлу
+        // Обробка ручного вибору файлів (підтримує multiple)
         document.getElementById('file-input').addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
+            const files = Array.from(e.target.files);
+            if (!files.length) return;
             document.getElementById('file-prompt').classList.add('hidden');
             document.getElementById('loading').classList.remove('hidden');
             document.getElementById('loading').innerHTML = 'Обробка... <span id="progress">0%</span>';
-            const url = URL.createObjectURL(file);
-            fbxLoader.load(url, (obj) => { URL.revokeObjectURL(url); setupLoadedModel(obj); }, updateProgress, showError);
+
+            files.forEach(file => {
+                const url = URL.createObjectURL(file);
+                const name = file.name.toLowerCase();
+
+                if (name.includes('safe')) {
+                    fbxLoader.load(url, (obj) => { URL.revokeObjectURL(url); setupLoadedModel(obj); }, updateProgress, showError);
+                } else if (name.includes('hip') || name.includes('dancing') || name.includes('knight')) {
+                    // Завантажуємо лівого, потім правого з того самого URL
+                    fbxLoader.load(url, (obj) => { setupKnight(obj, -130); }, undefined, (err) => console.warn(err));
+                    fbxLoader.load(url, (obj) => { URL.revokeObjectURL(url); setupKnight(obj, 130); }, undefined, (err) => console.warn(err));
+                }
+            });
         });
 
         function updateProgress(xhr) {
@@ -467,11 +484,59 @@
         function showError(err) {
             document.getElementById('loading').classList.add('hidden');
             document.getElementById('file-prompt').classList.remove('hidden');
-            console.warn(err);
+            console.warn('CORS або файл не знайдено:', err);
         }
 
-        // Автозавантаження
+        // Автозавантаження скрині
         fbxLoader.load('source/Safe.fbx', setupLoadedModel, updateProgress, showError);
+
+        // --- 7.5. Завантаження Танцюючих Лицарів ---
+        const knightMixers = [];
+
+        function setupKnight(object, xPosition) {
+            // Масштабуємо лицаря під розмір сцени
+            object.scale.setScalar(0.35);
+            object.updateMatrixWorld(true);
+
+            // Центруємо по X та ставимо на підлогу
+            const box = new THREE.Box3().setFromObject(object);
+            const center = box.getCenter(new THREE.Vector3());
+            object.position.x = xPosition - center.x;
+            object.position.y = -20 - box.min.y;
+            object.position.z = -20; // Трохи за сейфом для глибини
+
+            // Повертаємо лицаря обличчям до центру
+            object.rotation.y = xPosition > 0 ? -Math.PI / 6 : Math.PI / 6;
+
+            object.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+
+            scene.add(object);
+
+            // Запускаємо анімацію якщо є
+            if (object.animations && object.animations.length > 0) {
+                const mixer = new THREE.AnimationMixer(object);
+                const action = mixer.clipAction(object.animations[0]);
+                action.play();
+                knightMixers.push(mixer);
+            }
+        }
+
+        // Завантажуємо двох лицарів з одного файлу
+        function loadKnights() {
+            fbxLoader.load('source/Hip Hop Dancing.fbx', (obj) => {
+                setupKnight(obj, -130);
+            }, undefined, (err) => console.warn('Knight L - CORS, завантажте вручну:', err));
+
+            fbxLoader.load('source/Hip Hop Dancing.fbx', (obj) => {
+                setupKnight(obj, 130);
+            }, undefined, (err) => console.warn('Knight R - CORS, завантажте вручну:', err));
+        }
+        loadKnights();
 
         // --- 8. State Machine та Інтерактивність ---
         const STATE = { IDLE: 0, CLICK1: 1, CLICK2: 2, CLICK3: 3, REVEAL: 4, POST: 5 };
@@ -480,6 +545,7 @@
         let squashY = 1.0, squashXZ = 1.0;
         let targetEmissive = 0.0, currentEmissive = 0.0;
         let targetBloom = 0.3; // М'який базовий bloom
+        let starIdleY = 65; // Стартова висота зірки
 
         // Обробник кліків по всьому екрану
         document.addEventListener('pointerdown', (e) => {
@@ -579,8 +645,7 @@
             }
             
             // Повертаємо зірку на місце
-            const finalBox = new THREE.Box3().setFromObject(safeGroup);
-            starMesh.position.y = finalBox.max.y + 25;
+            starMesh.position.y = starIdleY;
         });
 
         // --- 9. Анімаційний Цикл ---
@@ -620,6 +685,9 @@
 
             // Інтерполяція Bloom ефекту
             bloomPass.strength += (targetBloom - bloomPass.strength) * dt * 8;
+
+            // Оновлюємо AnimationMixer для лицарів
+            knightMixers.forEach(mixer => mixer.update(dt));
 
             // Рендеримо через Composer замість renderer.render()
             composer.render();
