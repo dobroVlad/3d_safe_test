@@ -2,77 +2,170 @@
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Safe Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>3D Interactive Loot Box</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
-            background-color: #1a1a1a;
+            background-color: #f9a8d4; /* Стартовий колір */
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: #ffffff;
-            /* Преміальний градієнтний фон */
-            background: radial-gradient(circle at 50% 50%, #2a2a35 0%, #0d0d11 100%);
-            touch-action: none; /* Запобігає скролінгу всієї сторінки при свайпах */
+            touch-action: none;
+            user-select: none;
         }
         #canvas-container {
             width: 100vw;
             height: 100vh;
-            cursor: grab;
-        }
-        #canvas-container:active {
-            cursor: grabbing;
-        }
-        #loading {
             position: absolute;
-            top: 50%;
-            left: 50%;
+            top: 0; left: 0;
+            z-index: 1;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 10;
+            pointer-events: none; /* Кліки проходять наскрізь до canvas (сцени) */
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            align-items: center;
+        }
+        
+        .hidden {
+            display: none !important;
+            opacity: 0;
+        }
+        
+        /* Loading & Error Screens */
+        #loading, #file-prompt {
+            position: absolute;
+            top: 50%; left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 18px;
-            pointer-events: none;
+            pointer-events: auto;
             background: rgba(10, 10, 15, 0.85);
             padding: 20px 40px;
             border-radius: 16px;
             border: 1px solid rgba(255, 255, 255, 0.05);
             backdrop-filter: blur(10px);
+            z-index: 20;
+            text-align: center;
+            font-size: 18px;
             box-shadow: 0 15px 40px rgba(0,0,0,0.6);
-            transition: opacity 0.5s ease;
-            text-align: center;
+            transition: opacity 0.5s;
         }
-        #loading span {
-            display: block;
-            margin-top: 8px;
-            font-weight: bold;
-            color: #f8b500;
+        #loading span { color: #fde047; font-weight: bold; }
+
+        /* UI Overlay - Монетки */
+        #coins-container {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 50px;
+            transition: opacity 0.3s;
         }
-        .header {
+        .coin {
+            width: 60px; height: 60px;
+            background: radial-gradient(circle at 30% 30%, #fef08a, #ca8a04);
+            border-radius: 50%;
+            border: 4px solid #854d0e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 28px;
+            font-weight: 900;
+            color: #713f12;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5), inset 0 2px 5px rgba(255,255,255,0.5);
+            position: relative;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            text-shadow: 0 1px 1px rgba(255,255,255,0.5);
+        }
+        .coin.filled::after {
+            content: '';
             position: absolute;
-            top: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            text-align: center;
-            pointer-events: none;
-            text-shadow: 0 4px 15px rgba(0,0,0,0.9);
-            z-index: 10;
+            width: 16px; height: 16px;
+            background: #111;
+            border-radius: 50%;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.8);
         }
-        .header h1 {
-            margin: 0;
-            font-size: 32px;
-            font-weight: 300;
-            letter-spacing: 3px;
-            background: linear-gradient(90deg, #f8b500, #ffdd77);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+        .coin.filled {
+            color: transparent; /* Ховаємо знак ? */
+            text-shadow: none;
+            transform: scale(1.15);
         }
-        .header p {
-            margin: 8px 0 0 0;
-            font-size: 14px;
-            opacity: 0.6;
+
+        /* Текст підказки */
+        #tap-text {
+            position: absolute;
+            bottom: 150px;
+            font-size: 26px;
+            font-weight: bold;
             text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #fde047;
+            text-shadow: 0 4px 15px rgba(0,0,0,0.9), 0 0 10px rgba(253, 224, 71, 0.5);
+            animation: pulse 1s infinite alternate;
+        }
+        @keyframes pulse {
+            from { transform: scale(1); opacity: 0.7; }
+            to { transform: scale(1.05); opacity: 1; }
+        }
+
+        /* Картка Винагороди (Reward Card) */
+        #reward-card {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            background: linear-gradient(135deg, #1e40af, #3b82f6);
+            border: 4px solid #fef08a;
+            border-radius: 24px;
+            padding: 40px 60px;
+            text-align: center;
+            box-shadow: 0 0 60px rgba(59, 130, 246, 0.9), inset 0 0 30px rgba(255,255,255,0.3);
+            transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            pointer-events: auto;
+        }
+        #reward-card.show {
+            transform: translate(-50%, -50%) scale(1);
+        }
+        .reward-icon {
+            font-size: 90px;
+            margin-bottom: 20px;
+            filter: drop-shadow(0 15px 15px rgba(0,0,0,0.6));
+            animation: float-card 3s ease-in-out infinite;
+        }
+        .reward-text {
+            font-size: 36px;
+            font-weight: 900;
+            color: #fef08a;
+            text-shadow: 0 3px 6px rgba(0,0,0,0.8);
             letter-spacing: 1px;
         }
+        @keyframes float-card {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        /* Кнопка Retry */
+        #retry-btn {
+            position: absolute;
+            bottom: 80px;
+            padding: 15px 30px;
+            font-size: 20px;
+            font-weight: bold;
+            color: #713f12;
+            background: linear-gradient(to bottom, #fde047, #ca8a04);
+            border: 3px solid #854d0e;
+            border-radius: 12px;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.6);
+            transition: transform 0.2s, filter 0.2s;
+            pointer-events: auto;
+        }
+        #retry-btn:hover { filter: brightness(1.1); transform: scale(1.05); }
+        #retry-btn:active { transform: scale(0.95); }
     </style>
-    <!-- Підключення Three.js -->
+    <!-- Підключення Three.js та пост-обробки -->
     <script type="importmap">
         {
             "imports": {
@@ -83,220 +176,463 @@
     </script>
 </head>
 <body>
-    <div class="header">
-        <h1>Секретний Сейф</h1>
-        <p>Свайпайте для обертання (360°)</p>
-    </div>
+
+    <div id="loading">Завантаження ресурсів... <span id="progress">0%</span></div>
     
-    <div id="loading">
-        Завантаження 3D моделі... 
-        <span id="progress">0%</span>
+    <div id="file-prompt" class="hidden">
+        <div style="margin-bottom: 15px; font-size: 16px;">Помилка локального файлу (CORS).<br>Виберіть <strong>Safe.fbx</strong> вручну:</div>
+        <label for="file-input" style="cursor: pointer; background: #fef08a; color: #111; padding: 10px 20px; border-radius: 8px; font-weight: bold; display: inline-block;">
+            Завантажити FBX
+        </label>
+        <input type="file" id="file-input" accept=".fbx" style="display: none;" />
     </div>
-    
+
+    <!-- UI Шар -->
+    <div id="ui-layer" class="hidden">
+        <div id="tap-text" class="hidden">Tap to open</div>
+        <div id="coins-container">
+            <div class="coin" id="coin-1">?</div>
+            <div class="coin" id="coin-2">?</div>
+            <div class="coin" id="coin-3">?</div>
+        </div>
+        <div id="reward-card">
+            <div class="reward-icon">💰</div>
+            <div class="reward-text">Gold x1000</div>
+        </div>
+        <button id="retry-btn" class="hidden">Відкрити ще раз</button>
+    </div>
+
     <div id="canvas-container"></div>
 
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-        // 1. Налаштування сцени
+        // --- 1. Базові налаштування сцени ---
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x0d0d11, 0.003); // Плавне розчинення в темряві на фоні
+        scene.fog = new THREE.FogExp2(0xf9a8d4, 0.0015); // М'який рожевий туман 
 
         const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
-        camera.position.set(0, 80, 300);
+        camera.position.set(0, 50, 220); 
+        camera.lookAt(0, 20, 0); 
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false }); // Вимикаємо прозорість для Bloom
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Оптимізація для екранів з високою щільністю
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        renderer.toneMapping = THREE.ACESFilmicToneMapping; // Кінематографічні кольори
-        renderer.toneMappingExposure = 1.2;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
         document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-        // 2. Освітлення (Яскраве мультяшне)
-        const ambientLight = new THREE.AmbientLight(0xffffff, 1.8); // Яскраве загальне світло
+        // --- 2. Пост-обробка (Bloom) ---
+        const renderScene = new RenderPass(scene, camera);
+        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth/2, window.innerHeight/2), 1.5, 0.4, 0.85);
+        bloomPass.threshold = 1.0; // Високий поріг, щоб фон не світився
+        bloomPass.strength = 0.3; // М'яке базове світіння
+        bloomPass.radius = 0.5;
+
+        const composer = new EffectComposer(renderer);
+        composer.addPass(renderScene);
+        composer.addPass(bloomPass);
+
+        // --- 2.5. Анімований фон (Небо) всередині WebGL ---
+        const skyGeo = new THREE.SphereGeometry(1000, 32, 15);
+        const skyMat = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0.0 },
+                colorTop: { value: new THREE.Color(0xfdba74) }, // Orange
+                colorMid: { value: new THREE.Color(0xf9a8d4) }, // Pink
+                colorBot: { value: new THREE.Color(0x7dd3fc) }  // Sky blue
+            },
+            vertexShader: `
+                varying vec3 vWorldPosition;
+                void main() {
+                    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                    vWorldPosition = worldPosition.xyz;
+                    gl_Position = projectionMatrix * viewMatrix * worldPosition;
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                uniform vec3 colorTop;
+                uniform vec3 colorMid;
+                uniform vec3 colorBot;
+                varying vec3 vWorldPosition;
+
+                void main() {
+                    float h = normalize(vWorldPosition).y; 
+                    float anim = sin(time * 0.4) * 0.15; // Анімація переливання
+                    
+                    vec3 color = mix(colorBot, colorMid, smoothstep(-0.3 + anim, 0.2 + anim, h));
+                    color = mix(color, colorTop, smoothstep(0.2 + anim, 0.8 + anim, h));
+                    
+                    gl_FragColor = vec4(color, 1.0);
+                }
+            `,
+            side: THREE.BackSide,
+            depthWrite: false
+        });
+        const skyBox = new THREE.Mesh(skyGeo, skyMat);
+        scene.add(skyBox);
+
+        // --- 3. Освітлення ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
         scene.add(ambientLight);
 
-        // Головне світло з відкиданням тіні
-        const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
-        dirLight.position.set(150, 200, 150);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+        dirLight.position.set(100, 200, 100);
         dirLight.castShadow = true;
-        dirLight.shadow.mapSize.width = 2048;
-        dirLight.shadow.mapSize.height = 2048;
-        dirLight.shadow.bias = -0.001;
-        
-        const d = 200;
-        dirLight.shadow.camera.left = -d;
-        dirLight.shadow.camera.right = d;
-        dirLight.shadow.camera.top = d;
-        dirLight.shadow.camera.bottom = -d;
-        dirLight.shadow.camera.near = 0.5;
-        dirLight.shadow.camera.far = 1000;
+        dirLight.shadow.mapSize.width = 1024;
+        dirLight.shadow.mapSize.height = 1024;
         scene.add(dirLight);
 
-        // Підсвітка ззаду (синювата)
-        const backLight = new THREE.PointLight(0x0088ff, 3, 400);
-        backLight.position.set(-150, 100, -150);
-        scene.add(backLight);
-
-        // Тепле заповнююче світло
-        const fillLight = new THREE.PointLight(0xffaa00, 2, 300);
-        fillLight.position.set(150, -50, 100);
+        const fillLight = new THREE.PointLight(0x7c3aed, 3, 400); // Фіолетове світіння
+        fillLight.position.set(-150, 50, 100);
         scene.add(fillLight);
 
-        // 3. Управління (Свайп та мишка)
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true; // Плавність
-        controls.dampingFactor = 0.05;
-        controls.enablePan = false;    // Відключити зміщення (тільки обертання і зум)
-        controls.minDistance = 100;
-        controls.maxDistance = 500;
-        controls.maxPolarAngle = Math.PI / 2; // Не даємо камері опуститися під "підлогу"
-
-        // 4. Завантаження моделі
-        const safeGroup = new THREE.Group();
-        scene.add(safeGroup);
-        const basePosition = new THREE.Vector3(0, 0, 0);
-        
-        const textureLoader = new THREE.TextureLoader();
-        // Завантаження допоміжної текстури
-        const aoTexture = textureLoader.load('textures/internal_ground_ao_texture.jpeg');
-        aoTexture.colorSpace = THREE.SRGBColorSpace;
-
-        const fbxLoader = new FBXLoader();
-        fbxLoader.load(
-            'source/Safe.fbx',
-            (object) => {
-                const loadingEl = document.getElementById('loading');
-                loadingEl.style.opacity = '0';
-                setTimeout(() => loadingEl.style.display = 'none', 500);
-
-                object.traverse((child) => {
-                    if (child.isMesh) {
-                        child.castShadow = true;
-                        child.receiveShadow = true;
-                        
-                        // Покращення матеріалів для більш металевого преміум вигляду
-                        if (child.material) {
-                            const enhanceMaterial = (mat) => {
-                                // Забираємо зайву металічність, щоб об'єкт не був чорним
-                                mat.roughness = 0.8;
-                                mat.metalness = 0.1;
-
-                                // Робимо кольори світлішими, якщо вони за замовчуванням дуже темні
-                                if (mat.color && mat.color.getHex() < 0x333333) {
-                                    mat.color.setHex(0x555555); // Підсвічуємо темні матеріали
-                                }
-                                
-                                // Якщо ім'я матеріалу містить слова про підлогу чи внутрішню частину, застосовуємо нашу текстуру
-                                const matName = (mat.name || '').toLowerCase();
-                                if (matName.includes('ground') || matName.includes('internal')) {
-                                    // Як карта навколишнього затінення (Ambient Occlusion) або кольорова карта
-                                    mat.map = aoTexture;
-                                }
-                                mat.needsUpdate = true;
-                            };
-
-                            if (Array.isArray(child.material)) {
-                                child.material.forEach(enhanceMaterial);
-                            } else {
-                                enhanceMaterial(child.material);
-                            }
-                        }
-                    }
-                });
-
-                // Центрування моделі відносно її геометрії
-                const box = new THREE.Box3().setFromObject(object);
-                const center = box.getCenter(new THREE.Vector3());
-                object.position.sub(center); 
-
-                // Автоматичне масштабування (щоб модель гарантовано вмістилася в екран)
-                const size = box.getSize(new THREE.Vector3());
-                const maxDim = Math.max(size.x, size.y, size.z);
-                const scale = 120 / maxDim; // Цільовий розмір
-                object.scale.setScalar(scale);
-
-                safeGroup.add(object);
-                
-                // Встановлення моделі "на підлогу"
-                const scaledBox = new THREE.Box3().setFromObject(safeGroup);
-                basePosition.y = -scaledBox.min.y - 5; // Левітує або стоїть трішки над площиною
-                safeGroup.position.copy(basePosition);
-
-                // Оновлюємо ціль камери, щоб вона дивилася на центр сейфу
-                const safeCenterY = (scaledBox.max.y + scaledBox.min.y) / 2;
-                controls.target.set(0, basePosition.y + safeCenterY, 0);
-                controls.update();
-            },
-            (xhr) => {
-                const percent = Math.round((xhr.loaded / xhr.total) * 100);
-                const progressEl = document.getElementById('progress');
-                if (progressEl && isFinite(percent)) {
-                    progressEl.innerText = `${percent}%`;
-                }
-            },
-            (error) => {
-                console.error('Помилка завантаження моделі:', error);
-                document.getElementById('loading').innerHTML = 'Помилка завантаження.<br><span style="font-size:14px; color:#ff5555; margin-top:10px;">Відкрийте HTML через локальний сервер (Live Server у VS Code).</span>';
-            }
-        );
-
-        // Підлога для тіней
+        // --- 4. Оточення (Сітка підлоги) ---
         const planeGeo = new THREE.PlaneGeometry(1000, 1000);
-        const planeMat = new THREE.ShadowMaterial({ opacity: 0.6 });
+        const planeMat = new THREE.ShadowMaterial({ opacity: 0.25 }); // М'якіша тінь
         const plane = new THREE.Mesh(planeGeo, planeMat);
         plane.rotation.x = -Math.PI / 2;
-        plane.position.y = -5; // на рівні нижньої межі сейфу
+        plane.position.y = -20;
         plane.receiveShadow = true;
         scene.add(plane);
 
-        // 5. Цикл анімації
+        const grid = new THREE.GridHelper(1000, 40, 0xffffff, 0xffffff);
+        grid.position.y = -19.9;
+        grid.material.opacity = 0.15; // Світла напівпрозора сітка
+        grid.material.transparent = true;
+        scene.add(grid);
+
+        // --- 5. VFX: Частинки (Сяючі іскри) ---
+        // Кругла текстура для частинок
+        const canvas = document.createElement('canvas');
+        canvas.width = 16; canvas.height = 16;
+        const ctx = canvas.getContext('2d');
+        ctx.beginPath(); ctx.arc(8, 8, 8, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+        const particleTex = new THREE.CanvasTexture(canvas);
+
+        const particlesCount = 50; // Зменшено кількість (було 200)
+        const particlesGeo = new THREE.BufferGeometry();
+        const posArray = new Float32Array(particlesCount * 3);
+        const speedArray = new Float32Array(particlesCount);
+        
+        for(let i = 0; i < particlesCount * 3; i += 3) {
+            posArray[i] = (Math.random() - 0.5) * 300;     // X
+            posArray[i+1] = Math.random() * 250 - 50;      // Y
+            posArray[i+2] = (Math.random() - 0.5) * 300;   // Z
+            speedArray[i/3] = Math.random() * 0.1 + 0.05;  // Уповільнено (було 0.3 + 0.1)
+        }
+        particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        // Трохи підвищуємо значення кольору частинок для дуже м'якого світіння
+        const particleColor = new THREE.Color(0xffe4b5);
+        particleColor.multiplyScalar(1.2); 
+
+        const particlesMat = new THREE.PointsMaterial({
+            size: 6, color: particleColor, transparent: true, opacity: 0.8,
+            blending: THREE.AdditiveBlending, depthWrite: false, map: particleTex
+        });
+        const particlesMesh = new THREE.Points(particlesGeo, particlesMat);
+        scene.add(particlesMesh);
+
+        // --- 6. 3D Ассети: Зірка ---
+        const starShape = new THREE.Shape();
+        const outR = 8, inR = 3.5;
+        for (let i = 0; i < 10; i++) {
+            const r = i % 2 === 0 ? outR : inR;
+            const a = (i * Math.PI) / 5;
+            if (i === 0) starShape.moveTo(Math.sin(a)*r, Math.cos(a)*r);
+            else starShape.lineTo(Math.sin(a)*r, Math.cos(a)*r);
+        }
+        const starGeo = new THREE.ExtrudeGeometry(starShape, { depth: 1, bevelEnabled: true, bevelThickness: 0.5, bevelSize: 0.5, bevelSegments: 2 });
+        starGeo.center();
+        const starMat = new THREE.MeshStandardMaterial({ 
+            color: 0xfde047, emissive: 0xca8a04, emissiveIntensity: 4.0, roughness: 0.2, metalness: 0.6 
+        });
+        const starMesh = new THREE.Mesh(starGeo, starMat);
+        starMesh.position.set(0, 65, 0);
+        starMesh.visible = false; // Прихована до завантаження сейфу
+        scene.add(starMesh);
+
+        // --- 7. Завантаження Скрині (Safe) ---
+        const safeGroup = new THREE.Group();
+        scene.add(safeGroup);
+        const basePosition = new THREE.Vector3(0, -10, 0);
+        let safeMaterials = []; // Масив для керування світінням матеріалів
+        
+        const fbxLoader = new FBXLoader();
+
+        function setupLoadedModel(object) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('file-prompt').classList.add('hidden');
+            document.getElementById('ui-layer').classList.remove('hidden');
+
+            object.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    if (child.material) {
+                        const enhance = (mat) => {
+                            mat.roughness = 0.5;
+                            mat.metalness = 0.4;
+                            
+                            // Кастомізація під стиль "Скрині" (Фіолетовий + Золотий)
+                            const name = (mat.name || '').toLowerCase();
+                            if (name.includes('metal') || name.includes('trim') || name.includes('frame') || name.includes('wheel')) {
+                                mat.color.setHex(0xf59e0b); // Золото
+                                mat.metalness = 0.8;
+                            } else {
+                                mat.color.setHex(0x7c3aed); // Фіолетові панелі
+                            }
+                            
+                            mat.emissive.setHex(0x38bdf8); // Колір спалаху (яскраво блакитний)
+                            mat.emissiveIntensity = 0.0;
+                            safeMaterials.push(mat);
+                            mat.needsUpdate = true;
+                        };
+                        if (Array.isArray(child.material)) child.material.forEach(enhance);
+                        else enhance(child.material);
+                    }
+                }
+            });
+
+            // 1. Скидаємо будь-які трансформації
+            object.position.set(0,0,0);
+            object.scale.set(1,1,1);
+            object.updateMatrixWorld(true);
+
+            // 2. Рахуємо розмір і масштаб
+            const box = new THREE.Box3().setFromObject(object);
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            
+            // Зменшили цільовий розмір зі 120 до 75
+            const scale = 75 / maxDim; 
+            
+            // 3. Застосовуємо масштаб
+            object.scale.setScalar(scale);
+            object.updateMatrixWorld(true);
+
+            // 4. Тепер рахуємо центр вже масштабованого об'єкта
+            const scaledBox = new THREE.Box3().setFromObject(object);
+            const center = scaledBox.getCenter(new THREE.Vector3());
+            
+            // 5. Віднімаємо центр, щоб візуально модель стала точно в 0,0,0
+            object.position.sub(center);
+            object.updateMatrixWorld(true);
+
+            safeGroup.add(object);
+            
+            // Ледь помітно повернемо сейф, щоб було краще видно його форму і вміст
+            safeGroup.rotation.y = -Math.PI / 16;
+            
+            // 6. Рахуємо фінальну висоту для підлоги (-20)
+            const finalBox = new THREE.Box3().setFromObject(safeGroup);
+            const halfHeight = (finalBox.max.y - finalBox.min.y) / 2;
+            
+            basePosition.y = -20 + halfHeight; 
+            safeGroup.position.copy(basePosition);
+
+            // 7. Центруємо камеру на скрині
+            camera.lookAt(0, basePosition.y, 0);
+            
+            // Оновлюємо позицію зірки
+            starMesh.position.y = finalBox.max.y + 25; // Середня відстань (не дуже високо, але й не перетинає сейф)
+            starMesh.position.z = 0; 
+            starMesh.position.x = 0;
+            starMesh.visible = true; // Показуємо зірку
+        }
+
+        // Обробка ручного вибору файлу
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            document.getElementById('file-prompt').classList.add('hidden');
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('loading').innerHTML = 'Обробка... <span id="progress">0%</span>';
+            const url = URL.createObjectURL(file);
+            fbxLoader.load(url, (obj) => { URL.revokeObjectURL(url); setupLoadedModel(obj); }, updateProgress, showError);
+        });
+
+        function updateProgress(xhr) {
+            const el = document.getElementById('progress');
+            if (el && isFinite(xhr.total) && xhr.total > 0) el.innerText = Math.round((xhr.loaded/xhr.total)*100) + '%';
+        }
+        function showError(err) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('file-prompt').classList.remove('hidden');
+            console.warn(err);
+        }
+
+        // Автозавантаження
+        fbxLoader.load('source/Safe.fbx', setupLoadedModel, updateProgress, showError);
+
+        // --- 8. State Machine та Інтерактивність ---
+        const STATE = { IDLE: 0, CLICK1: 1, CLICK2: 2, CLICK3: 3, REVEAL: 4, POST: 5 };
+        let state = STATE.IDLE;
+
+        let squashY = 1.0, squashXZ = 1.0;
+        let targetEmissive = 0.0, currentEmissive = 0.0;
+        let targetBloom = 0.3; // М'який базовий bloom
+
+        // Обробник кліків по всьому екрану
+        document.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('#reward-card') || e.target.closest('#file-prompt') || e.target.closest('#retry-btn')) return;
+            
+            if (state >= STATE.IDLE && state < STATE.CLICK3) {
+                state++;
+                triggerFlash();
+                document.getElementById('coin-' + state).classList.add('filled');
+                
+                if (state === STATE.CLICK3) {
+                    document.getElementById('tap-text').classList.remove('hidden');
+                }
+            } 
+            else if (state === STATE.CLICK3) {
+                state = STATE.REVEAL;
+                triggerFinalReveal();
+            }
+        });
+
+        function triggerFlash() {
+            // Швидка деформація (Squash) та спалах
+            squashY = 0.7;     // стискається
+            squashXZ = 1.25;   // розширюється
+            targetEmissive = 2.0;  // Локальний м'який спалах сейфу
+            currentEmissive = 2.0; 
+            targetBloom = 0.8;
+
+            // Згасання спалаху через 150мс
+            setTimeout(() => { 
+                targetEmissive = 0.0; 
+                targetBloom = 0.3; 
+            }, 150);
+        }
+
+        function triggerFinalReveal() {
+            // Більш стриманий фінальний спалах
+            targetBloom = 2.0;
+            currentEmissive = 4.0; 
+            targetEmissive = 4.0;
+            
+            // Після 300мс (на піку світла) - підміняємо об'єкти
+            setTimeout(() => {
+                safeGroup.visible = false;
+                
+                // Одразу скидаємо параметри світіння сейфу, поки він прихований
+                targetEmissive = 0.0;
+                currentEmissive = 0.0;
+                safeMaterials.forEach(mat => { mat.emissiveIntensity = 0.0; });
+                
+                document.getElementById('coins-container').classList.add('hidden');
+                document.getElementById('tap-text').classList.add('hidden');
+                
+                // Переміщуємо зірку вище над карткою
+                starMesh.position.y = 110; 
+                
+                const reward = document.getElementById('reward-card');
+                reward.classList.remove('hidden');
+                setTimeout(() => reward.classList.add('show'), 50); // CSS анімація
+                
+                // Показуємо кнопку рестарту з невеличкою затримкою
+                setTimeout(() => {
+                    document.getElementById('retry-btn').classList.remove('hidden');
+                }, 800);
+
+                // Плавне повернення освітлення до норми
+                targetBloom = 0.3;
+                state = STATE.POST;
+            }, 300);
+        }
+
+        // Обробник для кнопки рестарту
+        document.getElementById('retry-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            
+            // Скидаємо стан
+            state = STATE.IDLE;
+            safeGroup.visible = true;
+            
+            // Додатково гарантуємо, що світіння скинуто
+            targetEmissive = 0.0;
+            currentEmissive = 0.0;
+            targetBloom = 0.3;
+            bloomPass.strength = 0.3;
+            
+            // Ховаємо картку та кнопку
+            const reward = document.getElementById('reward-card');
+            reward.classList.remove('show');
+            setTimeout(() => reward.classList.add('hidden'), 400); 
+            
+            document.getElementById('retry-btn').classList.add('hidden');
+            
+            // Показуємо і скидаємо монетки
+            document.getElementById('coins-container').classList.remove('hidden');
+            for(let i=1; i<=3; i++) {
+                document.getElementById('coin-' + i).classList.remove('filled');
+            }
+            
+            // Повертаємо зірку на місце
+            const finalBox = new THREE.Box3().setFromObject(safeGroup);
+            starMesh.position.y = finalBox.max.y + 25;
+        });
+
+        // --- 9. Анімаційний Цикл ---
         const clock = new THREE.Clock();
         
         function animate() {
             requestAnimationFrame(animate);
+            const dt = clock.getDelta();
+            const time = clock.getElapsedTime();
 
-            const elapsedTime = clock.getElapsedTime();
+            // Анімація фону (неба)
+            if (skyMat) skyMat.uniforms.time.value = time;
 
-            // Мультяшна анімація підстрибування (Lucky Chest style)
-            if (safeGroup && safeGroup.children.length > 0) {
-                const bounceSpeed = 10;
+            // Анімація частинок
+            const positions = particlesMesh.geometry.attributes.position.array;
+            for(let i = 1; i < particlesCount * 3; i += 3) {
+                // Робимо швидкість незалежною від FPS
+                positions[i] += speedArray[(i-1)/3] * (dt * 60); 
+                if(positions[i] > 200) positions[i] = -50;
+            }
+            particlesMesh.geometry.attributes.position.needsUpdate = true;
+
+            // Анімація сейфу
+            if (safeGroup.visible) {
+                // Відновлення форми (пружина) після деформації
+                squashY += (1.0 - squashY) * dt * 12;
+                squashXZ += (1.0 - squashXZ) * dt * 12;
+                safeGroup.scale.set(squashXZ, squashY, squashXZ);
                 
-                // Синусоїда по модулю дає ефект відбивання від землі
-                const bounce = Math.abs(Math.sin(elapsedTime * bounceSpeed));
+                // Левітація (зменшена амплітуда та швидкість)
+                safeGroup.position.y = basePosition.y + Math.sin(time * 1.5) * 2.5;
                 
-                // Деформація (Squash and Stretch)
-                // Коли летить вгору - витягується по Y, коли внизу - сплюскується
-                const stretchY = 1.0 + (bounce * 0.15); 
-                const stretchXZ = 1.0 - (bounce * 0.05);
-
-                safeGroup.scale.set(stretchXZ, stretchY, stretchXZ);
-
-                // Зміщення по Y (сам стрибок)
-                safeGroup.position.y = basePosition.y + (bounce * 25); // 25 - висота стрибка
-
-                // Додаємо мультяшне розгойдування в сторони
-                safeGroup.rotation.z = Math.sin(elapsedTime * bounceSpeed) * 0.08;
-                safeGroup.rotation.x = Math.cos(elapsedTime * bounceSpeed * 1.1) * 0.05;
+                // Інтерполяція світіння матеріалів
+                currentEmissive += (targetEmissive - currentEmissive) * dt * 10;
+                safeMaterials.forEach(mat => { mat.emissiveIntensity = currentEmissive; });
             }
 
-            controls.update(); // Для плавності камери
-            renderer.render(scene, camera);
+            // Інтерполяція Bloom ефекту
+            bloomPass.strength += (targetBloom - bloomPass.strength) * dt * 8;
+
+            // Рендеримо через Composer замість renderer.render()
+            composer.render();
         }
 
         animate();
 
-        // 6. Адаптація під розмір вікна
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
         });
-
     </script>
 </body>
 </html>
