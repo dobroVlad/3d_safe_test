@@ -116,12 +116,12 @@
         renderer.toneMappingExposure = 1.2;
         document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-        // 2. Освітлення (Кінематографічний setup)
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5); // Загальне світло
+        // 2. Освітлення (Яскраве мультяшне)
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.8); // Яскраве загальне світло
         scene.add(ambientLight);
 
         // Головне світло з відкиданням тіні
-        const dirLight = new THREE.DirectionalLight(0xffeedd, 1.5);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
         dirLight.position.set(150, 200, 150);
         dirLight.castShadow = true;
         dirLight.shadow.mapSize.width = 2048;
@@ -138,12 +138,12 @@
         scene.add(dirLight);
 
         // Підсвітка ззаду (синювата)
-        const backLight = new THREE.PointLight(0x0088ff, 2, 400);
+        const backLight = new THREE.PointLight(0x0088ff, 3, 400);
         backLight.position.set(-150, 100, -150);
         scene.add(backLight);
 
         // Тепле заповнююче світло
-        const fillLight = new THREE.PointLight(0xffaa00, 1, 300);
+        const fillLight = new THREE.PointLight(0xffaa00, 2, 300);
         fillLight.position.set(150, -50, 100);
         scene.add(fillLight);
 
@@ -182,9 +182,14 @@
                         // Покращення матеріалів для більш металевого преміум вигляду
                         if (child.material) {
                             const enhanceMaterial = (mat) => {
-                                // Якщо матеріал стандартний (часто з FBX приходить Phong або Standard)
-                                mat.roughness = 0.3;
-                                mat.metalness = 0.7;
+                                // Забираємо зайву металічність, щоб об'єкт не був чорним
+                                mat.roughness = 0.8;
+                                mat.metalness = 0.1;
+
+                                // Робимо кольори світлішими, якщо вони за замовчуванням дуже темні
+                                if (mat.color && mat.color.getHex() < 0x333333) {
+                                    mat.color.setHex(0x555555); // Підсвічуємо темні матеріали
+                                }
                                 
                                 // Якщо ім'я матеріалу містить слова про підлогу чи внутрішню частину, застосовуємо нашу текстуру
                                 const matName = (mat.name || '').toLowerCase();
@@ -221,6 +226,11 @@
                 const scaledBox = new THREE.Box3().setFromObject(safeGroup);
                 basePosition.y = -scaledBox.min.y - 5; // Левітує або стоїть трішки над площиною
                 safeGroup.position.copy(basePosition);
+
+                // Оновлюємо ціль камери, щоб вона дивилася на центр сейфу
+                const safeCenterY = (scaledBox.max.y + scaledBox.min.y) / 2;
+                controls.target.set(0, basePosition.y + safeCenterY, 0);
+                controls.update();
             },
             (xhr) => {
                 const percent = Math.round((xhr.loaded / xhr.total) * 100);
@@ -252,22 +262,26 @@
 
             const elapsedTime = clock.getElapsedTime();
 
-            // Анімація тремтіння сейфу (shaking effect)
+            // Мультяшна анімація підстрибування (Lucky Chest style)
             if (safeGroup && safeGroup.children.length > 0) {
-                const shakeIntensity = 0.6; // Сила тремтіння
-                const shakeSpeed = 45;      // Швидкість тремтіння
+                const bounceSpeed = 10;
+                
+                // Синусоїда по модулю дає ефект відбивання від землі
+                const bounce = Math.abs(Math.sin(elapsedTime * bounceSpeed));
+                
+                // Деформація (Squash and Stretch)
+                // Коли летить вгору - витягується по Y, коли внизу - сплюскується
+                const stretchY = 1.0 + (bounce * 0.15); 
+                const stretchXZ = 1.0 - (bounce * 0.05);
 
-                // Використовуємо високочастотний синус для ефекту дрібного тремтіння
-                const shakeX = Math.sin(elapsedTime * shakeSpeed) * shakeIntensity;
-                const shakeZ = Math.cos(elapsedTime * shakeSpeed * 1.1) * shakeIntensity;
-                const shakeY = Math.sin(elapsedTime * shakeSpeed * 1.3) * (shakeIntensity * 0.4);
+                safeGroup.scale.set(stretchXZ, stretchY, stretchXZ);
 
-                // Застосовуємо зміщення відносно базової позиції
-                safeGroup.position.set(
-                    basePosition.x + shakeX, 
-                    basePosition.y + shakeY, 
-                    basePosition.z + shakeZ
-                );
+                // Зміщення по Y (сам стрибок)
+                safeGroup.position.y = basePosition.y + (bounce * 25); // 25 - висота стрибка
+
+                // Додаємо мультяшне розгойдування в сторони
+                safeGroup.rotation.z = Math.sin(elapsedTime * bounceSpeed) * 0.08;
+                safeGroup.rotation.x = Math.cos(elapsedTime * bounceSpeed * 1.1) * 0.05;
             }
 
             controls.update(); // Для плавності камери
