@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Safe Viewer</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #ffffff;
+            /* Преміальний градієнтний фон */
+            background: radial-gradient(circle at 50% 50%, #2a2a35 0%, #0d0d11 100%);
+            touch-action: none; /* Запобігає скролінгу всієї сторінки при свайпах */
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            cursor: grab;
+        }
+        #canvas-container:active {
+            cursor: grabbing;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 18px;
+            pointer-events: none;
+            background: rgba(10, 10, 15, 0.85);
+            padding: 20px 40px;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+            transition: opacity 0.5s ease;
+            text-align: center;
+        }
+        #loading span {
+            display: block;
+            margin-top: 8px;
+            font-weight: bold;
+            color: #f8b500;
+        }
+        .header {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            pointer-events: none;
+            text-shadow: 0 4px 15px rgba(0,0,0,0.9);
+            z-index: 10;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 32px;
+            font-weight: 300;
+            letter-spacing: 3px;
+            background: linear-gradient(90deg, #f8b500, #ffdd77);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .header p {
+            margin: 8px 0 0 0;
+            font-size: 14px;
+            opacity: 0.6;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+    </style>
+    <!-- Підключення Three.js -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="header">
+        <h1>Секретний Сейф</h1>
+        <p>Свайпайте для обертання (360°)</p>
+    </div>
+    
+    <div id="loading">
+        Завантаження 3D моделі... 
+        <span id="progress">0%</span>
+    </div>
+    
+    <div id="canvas-container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+
+        // 1. Налаштування сцени
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x0d0d11, 0.003); // Плавне розчинення в темряві на фоні
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
+        camera.position.set(0, 80, 300);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Оптимізація для екранів з високою щільністю
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping; // Кінематографічні кольори
+        renderer.toneMappingExposure = 1.2;
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // 2. Освітлення (Кінематографічний setup)
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5); // Загальне світло
+        scene.add(ambientLight);
+
+        // Головне світло з відкиданням тіні
+        const dirLight = new THREE.DirectionalLight(0xffeedd, 1.5);
+        dirLight.position.set(150, 200, 150);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.bias = -0.001;
+        
+        const d = 200;
+        dirLight.shadow.camera.left = -d;
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d;
+        dirLight.shadow.camera.bottom = -d;
+        dirLight.shadow.camera.near = 0.5;
+        dirLight.shadow.camera.far = 1000;
+        scene.add(dirLight);
+
+        // Підсвітка ззаду (синювата)
+        const backLight = new THREE.PointLight(0x0088ff, 2, 400);
+        backLight.position.set(-150, 100, -150);
+        scene.add(backLight);
+
+        // Тепле заповнююче світло
+        const fillLight = new THREE.PointLight(0xffaa00, 1, 300);
+        fillLight.position.set(150, -50, 100);
+        scene.add(fillLight);
+
+        // 3. Управління (Свайп та мишка)
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; // Плавність
+        controls.dampingFactor = 0.05;
+        controls.enablePan = false;    // Відключити зміщення (тільки обертання і зум)
+        controls.minDistance = 100;
+        controls.maxDistance = 500;
+        controls.maxPolarAngle = Math.PI / 2; // Не даємо камері опуститися під "підлогу"
+
+        // 4. Завантаження моделі
+        const safeGroup = new THREE.Group();
+        scene.add(safeGroup);
+        const basePosition = new THREE.Vector3(0, 0, 0);
+        
+        const textureLoader = new THREE.TextureLoader();
+        // Завантаження допоміжної текстури
+        const aoTexture = textureLoader.load('textures/internal_ground_ao_texture.jpeg');
+        aoTexture.colorSpace = THREE.SRGBColorSpace;
+
+        const fbxLoader = new FBXLoader();
+        fbxLoader.load(
+            'source/Safe.fbx',
+            (object) => {
+                const loadingEl = document.getElementById('loading');
+                loadingEl.style.opacity = '0';
+                setTimeout(() => loadingEl.style.display = 'none', 500);
+
+                object.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                        
+                        // Покращення матеріалів для більш металевого преміум вигляду
+                        if (child.material) {
+                            const enhanceMaterial = (mat) => {
+                                // Якщо матеріал стандартний (часто з FBX приходить Phong або Standard)
+                                mat.roughness = 0.3;
+                                mat.metalness = 0.7;
+                                
+                                // Якщо ім'я матеріалу містить слова про підлогу чи внутрішню частину, застосовуємо нашу текстуру
+                                const matName = (mat.name || '').toLowerCase();
+                                if (matName.includes('ground') || matName.includes('internal')) {
+                                    // Як карта навколишнього затінення (Ambient Occlusion) або кольорова карта
+                                    mat.map = aoTexture;
+                                }
+                                mat.needsUpdate = true;
+                            };
+
+                            if (Array.isArray(child.material)) {
+                                child.material.forEach(enhanceMaterial);
+                            } else {
+                                enhanceMaterial(child.material);
+                            }
+                        }
+                    }
+                });
+
+                // Центрування моделі відносно її геометрії
+                const box = new THREE.Box3().setFromObject(object);
+                const center = box.getCenter(new THREE.Vector3());
+                object.position.sub(center); 
+
+                // Автоматичне масштабування (щоб модель гарантовано вмістилася в екран)
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const scale = 120 / maxDim; // Цільовий розмір
+                object.scale.setScalar(scale);
+
+                safeGroup.add(object);
+                
+                // Встановлення моделі "на підлогу"
+                const scaledBox = new THREE.Box3().setFromObject(safeGroup);
+                basePosition.y = -scaledBox.min.y - 5; // Левітує або стоїть трішки над площиною
+                safeGroup.position.copy(basePosition);
+            },
+            (xhr) => {
+                const percent = Math.round((xhr.loaded / xhr.total) * 100);
+                const progressEl = document.getElementById('progress');
+                if (progressEl && isFinite(percent)) {
+                    progressEl.innerText = `${percent}%`;
+                }
+            },
+            (error) => {
+                console.error('Помилка завантаження моделі:', error);
+                document.getElementById('loading').innerHTML = 'Помилка завантаження.<br><span style="font-size:14px; color:#ff5555; margin-top:10px;">Відкрийте HTML через локальний сервер (Live Server у VS Code).</span>';
+            }
+        );
+
+        // Підлога для тіней
+        const planeGeo = new THREE.PlaneGeometry(1000, 1000);
+        const planeMat = new THREE.ShadowMaterial({ opacity: 0.6 });
+        const plane = new THREE.Mesh(planeGeo, planeMat);
+        plane.rotation.x = -Math.PI / 2;
+        plane.position.y = -5; // на рівні нижньої межі сейфу
+        plane.receiveShadow = true;
+        scene.add(plane);
+
+        // 5. Цикл анімації
+        const clock = new THREE.Clock();
+        
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const elapsedTime = clock.getElapsedTime();
+
+            // Анімація тремтіння сейфу (shaking effect)
+            if (safeGroup && safeGroup.children.length > 0) {
+                const shakeIntensity = 0.6; // Сила тремтіння
+                const shakeSpeed = 45;      // Швидкість тремтіння
+
+                // Використовуємо високочастотний синус для ефекту дрібного тремтіння
+                const shakeX = Math.sin(elapsedTime * shakeSpeed) * shakeIntensity;
+                const shakeZ = Math.cos(elapsedTime * shakeSpeed * 1.1) * shakeIntensity;
+                const shakeY = Math.sin(elapsedTime * shakeSpeed * 1.3) * (shakeIntensity * 0.4);
+
+                // Застосовуємо зміщення відносно базової позиції
+                safeGroup.position.set(
+                    basePosition.x + shakeX, 
+                    basePosition.y + shakeY, 
+                    basePosition.z + shakeZ
+                );
+            }
+
+            controls.update(); // Для плавності камери
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // 6. Адаптація під розмір вікна
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+</html>
